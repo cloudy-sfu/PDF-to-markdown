@@ -14,8 +14,8 @@ class GenerationResult:
 @dataclass
 class BatchInputItem:
     image: Image.Image
+    layout: bool
     prompt: str | None = None
-    prompt_type: str | None = None
 
 
 @dataclass

@@ -70,7 +70,7 @@ Guidelines:
 """.strip()
 
 OCR_LAYOUT_PROMPT = f"""
-OCR this image to HTML, arranged as layout blocks.  Each layout block should be a div with the data-bbox attribute representing the bounding box of the block in x0 y0 x1 y1 format.  Bboxes are normalized 0-1000. The data-label attribute is the label for the block.
+OCR this image to HTML, arranged as layout blocks. Each layout block should be a div with the data-bbox attribute representing the bounding box of the block in x0 y0 x1 y1 format.  Bboxes are normalized 0-1000. The data-label attribute is the label for the block.
 
 Use the following labels:
 - Caption
@@ -101,8 +101,3 @@ OCR this image to HTML.
 
 {PROMPT_ENDING}
 """.strip()
-
-PROMPT_MAPPING = {
-    "ocr_layout": OCR_LAYOUT_PROMPT,
-    "ocr": OCR_PROMPT,
-}

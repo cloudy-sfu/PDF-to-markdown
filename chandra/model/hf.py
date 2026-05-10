@@ -1,20 +1,23 @@
 from typing import List
 
-from chandra.model.schema import BatchInputItem, GenerationResult
-from chandra.model.util import scale_to_fit
-from chandra.prompts import PROMPT_MAPPING
+import torch
+from PIL import Image
+from transformers import AutoModelForImageTextToText, AutoProcessor
+
 from chandra import settings
+from chandra.model.schema import BatchInputItem, GenerationResult
+from chandra.prompts import OCR_PROMPT, OCR_LAYOUT_PROMPT
 
 
 def generate_hf(
-    batch: List[BatchInputItem],
+    batch: BatchInputItem,
     model,
     max_output_tokens=None,
 ) -> List[GenerationResult]:
     if max_output_tokens is None:
         max_output_tokens = settings.MAX_OUTPUT_TOKENS
 
-    conversations = [[process_batch_element(item)] for item in batch]
+    conversations = [[process_batch_element(batch)]]
 
     inputs = model.processor.apply_chat_template(
         conversations,
@@ -22,7 +25,7 @@ def generate_hf(
         add_generation_prompt=True,
         return_dict=True,
         return_tensors="pt",
-        padding=True,
+        processor_kwargs={"padding": True},
     )
     inputs = inputs.to(model.device)
 
@@ -36,7 +39,10 @@ def generate_hf(
         eos_token_id.append(im_end_id)
 
     generated_ids = model.generate(
-        **inputs, max_new_tokens=max_output_tokens, eos_token_id=eos_token_id
+        **inputs, 
+        max_new_tokens=max_output_tokens, 
+        eos_token_id=eos_token_id,
+        pad_token_id=model.processor.tokenizer.pad_token_id
     )
     generated_ids_trimmed = [
         out_ids[len(in_ids) :]
@@ -54,13 +60,64 @@ def generate_hf(
     return results
 
 
+def scale_to_fit(img, max_size=(3072, 2048), min_size=(1792, 28), grid_size=28):
+    resample_method = Image.Resampling.LANCZOS
+    width, height = img.size
+
+    # Check for empty or invalid image
+    if width <= 0 or height <= 0:
+        return img
+
+    original_ar = width / height
+    current_pixels = width * height
+    max_pixels = max_size[0] * max_size[1]
+    min_pixels = min_size[0] * min_size[1]
+
+    # 1. Determine ideal float scale based on pixel bounds
+    scale = 1.0
+    if current_pixels > max_pixels:
+        scale = (max_pixels / current_pixels) ** 0.5
+    elif current_pixels < min_pixels:
+        scale = (min_pixels / current_pixels) ** 0.5
+
+    # 2. Convert dimensions to integer "grid blocks"
+    w_blocks = max(1, round((width * scale) / grid_size))
+    h_blocks = max(1, round((height * scale) / grid_size))
+
+    # 3. Refinement Loop: Ensure we are under the max limit
+    while (w_blocks * h_blocks * grid_size * grid_size) > max_pixels:
+        if w_blocks == 1 and h_blocks == 1:
+            break
+
+        if w_blocks == 1:
+            h_blocks -= 1
+            continue
+        if h_blocks == 1:
+            w_blocks -= 1
+            continue
+
+        # Compare distortion: Which move preserves Aspect Ratio better?
+        ar_w_loss = abs(((w_blocks - 1) / h_blocks) - original_ar)
+        ar_h_loss = abs((w_blocks / (h_blocks - 1)) - original_ar)
+
+        if ar_w_loss < ar_h_loss:
+            w_blocks -= 1
+        else:
+            h_blocks -= 1
+
+    # 4. Calculate final pixel dimensions
+    new_width = w_blocks * grid_size
+    new_height = h_blocks * grid_size
+
+    # Return original if no changes were needed
+    if (new_width, new_height) == (width, height):
+        return img
+
+    return img.resize((new_width, new_height), resample=resample_method)
+
+
 def process_batch_element(item: BatchInputItem):
-    prompt = item.prompt
-    prompt_type = item.prompt_type
-
-    if not prompt:
-        prompt = PROMPT_MAPPING[prompt_type]
-
+    prompt = item.prompt or (OCR_LAYOUT_PROMPT if item.layout else OCR_PROMPT)
     content = []
     image = scale_to_fit(item.image)  # Guarantee max size
     content.append({"type": "image", "image": image})
@@ -69,15 +126,6 @@ def process_batch_element(item: BatchInputItem):
 
 
 def load_model():
-    try:
-        import torch
-        from transformers import AutoModelForImageTextToText, AutoProcessor
-    except ImportError:
-        raise ImportError(
-            "HuggingFace backend requires additional dependencies. "
-            "Install with: pip install chandra-ocr[hf]"
-        )
-
     device_map = "auto"
     if settings.TORCH_DEVICE:
         device_map = {"": settings.TORCH_DEVICE}

@@ -1,6 +1,6 @@
 # PDF to markdown
 
- Convert PDF to markdown
+ Convert PDF or image to markdown
 
 ![](https://shields.io/badge/OS-Windows_11-navy)
 ![](https://shields.io/badge/dependencies-Python_3.14-blue)
@@ -32,6 +32,6 @@ Run the following command in terminal.
 
 ```
 pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu130
-python pdf_install.py
+python install.py
 ```
 

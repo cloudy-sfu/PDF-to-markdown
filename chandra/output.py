@@ -45,7 +45,7 @@ class LayoutBlock:
     content: str
 
 
-def parse_layout(html: str, image: Image.Image, bbox_scale=settings.BBOX_SCALE):
+def parse_chunks(html: str, image: Image.Image, bbox_scale=settings.BBOX_SCALE):
     soup = BeautifulSoup(html, "html.parser")
     top_level_divs = soup.find_all("div", recursive=False)
     width, height = image.size
@@ -83,12 +83,8 @@ def parse_layout(html: str, image: Image.Image, bbox_scale=settings.BBOX_SCALE):
         for tag in content_soup.find_all(attrs={"data-bbox": True}):
             del tag["data-bbox"]
         content = str(content_soup)
+        block = LayoutBlock(bbox=bbox, label=label, content=content)
+        block = asdict(block)
+        layout_blocks.append(block)
 
-        layout_blocks.append(LayoutBlock(bbox=bbox, label=label, content=content))
     return layout_blocks
-
-
-def parse_chunks(html: str, image: Image.Image, bbox_scale=settings.BBOX_SCALE):
-    layout = parse_layout(html, image, bbox_scale=bbox_scale)
-    chunks = [asdict(block) for block in layout]
-    return chunks
