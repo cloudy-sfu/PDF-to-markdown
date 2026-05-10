@@ -21,6 +21,7 @@ class LogStream(QObject):
     def flush(self):
         pass
 
+
 class LogHandler(logging.Handler):
     def __init__(self, stream):
         super().__init__()
@@ -29,6 +30,7 @@ class LogHandler(logging.Handler):
     def emit(self, record):
         msg = self.format(record)
         self.stream.write(msg)
+
 
 class Worker(QThread):
     task_started = pyqtSignal(int)
@@ -44,7 +46,7 @@ class Worker(QThread):
         for i, task in enumerate(self.tasks):
             if not self.running:
                 break
-            
+
             row = task['row']
             input_file = task['input']
             output_dir = task['output']
@@ -62,7 +64,7 @@ class Worker(QThread):
                 import traceback
                 traceback.print_exc()
                 self.task_finished.emit(row, False, str(e))
-                
+
         self.all_finished.emit()
 
     def stop(self):
@@ -88,37 +90,47 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         layout = QVBoxLayout(central_widget)
 
-        # Controls wrapped in a widget to allow enabling/disabling at once
-        self.controls_widget = QWidget()
-        controls_layout = QHBoxLayout(self.controls_widget)
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.btn_add = QPushButton("Add Task")
+        controls_layout = QHBoxLayout()
+
+        self.tasks_controls = QWidget()
+        tasks_layout = QHBoxLayout(self.tasks_controls)
+        tasks_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.btn_add = QPushButton("Add")
         self.btn_add.clicked.connect(self.add_tasks)
-        self.btn_delete = QPushButton("Delete Task")
+        self.btn_delete = QPushButton("Delete")
         self.btn_delete.clicked.connect(self.delete_tasks)
-        self.btn_start = QPushButton("Start Processing")
+        self.btn_start = QPushButton("Start all")
         self.btn_start.clicked.connect(self.start_processing)
-        self.btn_skip = QPushButton("Skip Current")
+
+        tasks_layout.addWidget(self.btn_add)
+        tasks_layout.addWidget(self.btn_delete)
+        tasks_layout.addWidget(self.btn_start)
+
+        self.worker_controls = QWidget()
+        worker_layout = QHBoxLayout(self.worker_controls)
+        worker_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.btn_skip = QPushButton("Skip")
         self.btn_skip.clicked.connect(self.skip_current)
-        self.btn_skip.setEnabled(False)
-        self.btn_stop = QPushButton("Stop All")
+        self.btn_stop = QPushButton("Stop all")
         self.btn_stop.clicked.connect(self.stop_all)
-        self.btn_stop.setEnabled(False)
-        
-        controls_layout.addWidget(self.btn_add)
-        controls_layout.addWidget(self.btn_delete)
-        controls_layout.addWidget(self.btn_start)
-        controls_layout.addWidget(self.btn_skip)
-        controls_layout.addWidget(self.btn_stop)
+
+        worker_layout.addWidget(self.btn_skip)
+        worker_layout.addWidget(self.btn_stop)
+        self.worker_controls.setEnabled(False)
+
+        controls_layout.addWidget(self.tasks_controls)
+        controls_layout.addWidget(self.worker_controls)
         controls_layout.addStretch()
-        layout.addWidget(self.controls_widget)
+        layout.addLayout(controls_layout)
 
         # Table
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
-            ["Input File", "Output Directory", "Page Ranges", "Layout", "Status"])
-        
+            ["Input file", "Output directory", "Page ranges", "Layout",
+             "Status" + " " * 8])
+
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
@@ -128,10 +140,11 @@ class MainWindow(QMainWindow):
         header.setCascadingSectionResizes(True)
 
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.verticalHeader().setVisible(False)
         self.table.cellDoubleClicked.connect(self.on_cell_double_clicked)
         # Apply layout checkbox when clicking in layout column
         self.table.cellClicked.connect(self.on_cell_clicked)
-        
+
         layout.addWidget(self.table)
 
         # Log output
@@ -152,7 +165,7 @@ class MainWindow(QMainWindow):
         total_width = self.table.viewport().width()
         used_width = self.table.columnWidth(3) + self.table.columnWidth(4)
         available_width = max(0, total_width - used_width)
-        
+
         segment = available_width // 3
         self.table.setColumnWidth(0, segment)
         self.table.setColumnWidth(1, segment)
@@ -193,7 +206,8 @@ class MainWindow(QMainWindow):
 
     def delete_tasks(self):
         # Delete selected rows (iterate in reverse to avoid index shifting issues)
-        selected_rows = sorted(set(idx.row() for idx in self.table.selectedIndexes()), reverse=True)
+        selected_rows = sorted(set(idx.row() for idx in self.table.selectedIndexes()),
+                               reverse=True)
         for row in selected_rows:
             self.table.removeRow(row)
 
@@ -208,13 +222,16 @@ class MainWindow(QMainWindow):
                 is_pdf = file_path.lower().endswith('.pdf')
                 if not is_pdf:
                     self.table.item(row, 2).setText("")
-                    self.table.item(row, 2).setFlags(self.table.item(row, 2).flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    self.table.item(row, 2).setFlags(
+                        self.table.item(row, 2).flags() & ~Qt.ItemFlag.ItemIsEditable)
                 else:
                     self.table.item(row, 2).setText("1-")
-                    self.table.item(row, 2).setFlags(self.table.item(row, 2).flags() | Qt.ItemFlag.ItemIsEditable)
+                    self.table.item(row, 2).setFlags(
+                        self.table.item(row, 2).flags() | Qt.ItemFlag.ItemIsEditable)
 
         elif col == 1:
-            dir_path = QFileDialog.getExistingDirectory(self, "Select Output Directory", self.table.item(row, col).text())
+            dir_path = QFileDialog.getExistingDirectory(self, "Select Output Directory",
+                                                        self.table.item(row, col).text())
             if dir_path:
                 self.table.item(row, 1).setText(dir_path)
 
@@ -230,17 +247,18 @@ class MainWindow(QMainWindow):
         for row in range(self.table.rowCount()):
             status = self.table.item(row, 4).text()
             if status == "Completed" or (ignore_failed and status == "Failed"):
-                tasks.append(None) # Skip completed or ignored failed
+                tasks.append(None)  # Skip completed or ignored failed
                 continue
-                
+
             input_file = self.table.item(row, 0).text().strip()
             output_dir = self.table.item(row, 1).text().strip()
             page_range = self.table.item(row, 2).text().strip()
             layout = self.table.item(row, 3).checkState() == Qt.CheckState.Checked
-            
+
             # Validation at submission time
             if not input_file or not output_dir:
-                logging.error(f"Task on row {row + 1} failed: Empty input or output paths.")
+                logging.error(
+                    f"Task on row {row + 1} failed: Empty input or output paths.")
                 self.set_row_status(row, "Failed", QColor("red"))
                 tasks.append(None)
                 continue
@@ -252,20 +270,17 @@ class MainWindow(QMainWindow):
                 'pages': page_range,
                 'layout': layout
             })
-            
+
             # Reset status to Not started if it failed before
             self.set_row_status(row, "Not started", None)
-        
+
         valid_tasks = [t for t in tasks if t is not None]
         if not valid_tasks:
-            logging.info("No pending task to run.")
+            logging.warning("No queued task to run.")
             return
 
-        self.btn_add.setEnabled(False)
-        self.btn_delete.setEnabled(False)
-        self.btn_start.setEnabled(False)
-        self.btn_skip.setEnabled(True)
-        self.btn_stop.setEnabled(True)
+        self.tasks_controls.setEnabled(False)
+        self.worker_controls.setEnabled(True)
         self.table.setEnabled(False)
         self.worker = Worker(valid_tasks)
         self.worker.task_started.connect(self.on_task_started)
@@ -288,20 +303,20 @@ class MainWindow(QMainWindow):
         if self.worker is not None and self.worker.isRunning():
             self.worker.terminate()
             self.worker.wait()
-            if hasattr(self, 'current_running_row') and self.current_running_row is not None:
+            if hasattr(self,
+                       'current_running_row') and self.current_running_row is not None:
                 self.set_row_status(self.current_running_row, "Failed", QColor("red"))
                 self.current_running_row = None
-            logging.info("Terminated current job.")
             self.start_processing(ignore_failed=True)
 
     def stop_all(self):
         if self.worker is not None and self.worker.isRunning():
             self.worker.terminate()
             self.worker.wait()
-            if hasattr(self, 'current_running_row') and self.current_running_row is not None:
+            if hasattr(self,
+                       'current_running_row') and self.current_running_row is not None:
                 self.set_row_status(self.current_running_row, "Failed", QColor("red"))
                 self.current_running_row = None
-            logging.info("Terminated all jobs.")
             self.on_all_finished()
 
     def on_task_started(self, row):
@@ -324,13 +339,9 @@ class MainWindow(QMainWindow):
             self.current_running_row = None
 
     def on_all_finished(self):
-        self.btn_add.setEnabled(True)
-        self.btn_delete.setEnabled(True)
-        self.btn_start.setEnabled(True)
-        self.btn_skip.setEnabled(False)
-        self.btn_stop.setEnabled(False)
+        self.tasks_controls.setEnabled(True)
+        self.worker_controls.setEnabled(False)
         self.table.setEnabled(True)
-        logging.info("All tasks processed.")
 
 
 if __name__ == '__main__':
