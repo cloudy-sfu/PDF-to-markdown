@@ -14,11 +14,6 @@ from chandra.model.hf import load_model, generate_hf
 from chandra.model.schema import BatchInputItem
 from chandra.output import parse_chunks, md_converter
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(levelname)s] %(message)s",
-    stream=sys.stdout,
-)
 model = load_model()
 logging.info("Model loaded.")
 _SEGMENT = r'[1-9]\d*(?:-(?:[1-9]\d*)?)?'
