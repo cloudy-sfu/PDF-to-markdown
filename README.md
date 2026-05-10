@@ -24,6 +24,8 @@ https://huggingface.co/datalab-to/chandra-ocr-2
 
 https://qwen.ai/blog?id=qwen3.5
 
+https://github.com/invl/pip-autoremove
+
 ## Install
 
 Create and activate a Python virtual environment.
