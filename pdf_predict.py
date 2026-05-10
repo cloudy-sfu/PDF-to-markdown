@@ -1,14 +1,13 @@
 import logging
 import os
-import re
 import sys
 import uuid
-from html import unescape
+from datetime import datetime, UTC
 
 from chandra.input import load_file
 from chandra.model.hf import load_model, generate_hf
 from chandra.model.schema import BatchInputItem
-from chandra.output import parse_chunks
+from chandra.output import parse_chunks, md_converter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,6 +19,7 @@ logging.info("Model loaded.")
 
 
 def predict(input_path, output_dir, page_range=None, layout=True):
+    logging.info(f"Task: {input_path} -> {output_dir}")
     """
     Predict the content of a PDF or image file.
     """
@@ -43,10 +43,15 @@ def predict(input_path, output_dir, page_range=None, layout=True):
     n_pages = len(pages)
 
     # Generate/Predict in smaller chunks (Method 2: Reduce Batch Size)
-    output_markdown = []
-    for i, batch in enumerate(pages):
-        model_output = generate_hf([batch], model)
+    with open(os.path.join(output_dir, "main.md"), "w"):
+        pass
+    for i, page in enumerate(pages):
+        logging.info(f"  Page: {i + 1}/{n_pages}")
+        start_time = datetime.now(tz=UTC)
+        output_markdown = []
+        model_output = generate_hf([page], model)
         html = model_output[0].raw
+        logging.info(f"    Output tokens: {model_output[0].token_count}")
         img = images[i]
         chunks = parse_chunks(html, img)
 
@@ -65,43 +70,28 @@ def predict(input_path, output_dir, page_range=None, layout=True):
                     img.crop(bbox).save(fp_abs)
                     output_markdown.append(f"![{label}]({output_assets_rel_dir}/{fn})\n")
                 case "Section-Header":
-                    text = re.sub(r"<math[^>]*>(.*?)</math>", r"$\1$", content, flags=re.DOTALL)
-                    text = re.sub(r"<(?!/?math\b)[^>]+>", "", text).strip()
+                    text = md_converter.convert(content).lstrip("#").strip()
                     output_markdown.append(f"## {text}\n")
                 case "Caption":
-                    text = re.sub(r"<math[^>]*>(.*?)</math>", r"$\1$", content, flags=re.DOTALL)
-                    text = re.sub(r"</?p[^>]*>", "", text).strip()
-                    output_markdown.append(f"*{text}*\n")
+                    output_markdown.append(f"*{md_converter.convert(content).strip()}*\n")
                 case "Footnote":
-                    text = re.sub(r"<math[^>]*>(.*?)</math>", r"$\1$", content, flags=re.DOTALL)
-                    text = re.sub(r"</?p[^>]*>", "", text).strip()
+                    text = md_converter.convert(content).replace("\n", " ").strip()
                     output_markdown.append(f"> {text}\n")
-                case "Code-Block":
-                    m = re.search(r"<code[^>]*>(.*?)</code>", content, re.DOTALL)
-                    code = unescape(m.group(1)) if m else re.sub(r"<[^>]+>", "", content)
-                    output_markdown.append(f"```\n{code}\n```\n")
                 case "Equation-Block":
-                    # Convert <math>...</math> to $$...$$ display math
-                    eq = re.sub(r"<math[^>]*>(.*?)</math>", r"$\1$", content, flags=re.DOTALL)
-                    eq = re.sub(r"</?p[^>]*>", "", eq).strip()
+                    # Display math: convert inline $...$ from <math> to $$...$$
+                    eq = md_converter.convert(content).strip()
+                    if eq.startswith("$") and eq.endswith("$") and not eq.startswith("$$"):
+                        eq = f"${eq}$"
                     output_markdown.append(f"{eq}\n")
-                case "Text":
-                    # Strip <p> wrapper for cleaner markdown
-                    text = re.sub(r"^\s*<p[^>]*>|</p>\s*$", "", content, flags=re.DOTALL).strip()
-                    # Convert simple inline tags
-                    text = re.sub(r"<b>(.*?)</b>", r"**\1**", text, flags=re.DOTALL)
-                    text = re.sub(r"<i>(.*?)</i>", r"*\1*", text, flags=re.DOTALL)
-                    text = re.sub(r"<math[^>]*>(.*?)</math>", r"$\1$", text, flags=re.DOTALL)
-                    output_markdown.append(f"{text}\n")
-                case "Table" | "List-Group" | "Form" | "Table-Of-Contents" | "Bibliography" | "Complex-Block":
-                    # Markdown supports raw HTML, so pass through.
-                    # Convert inline <math>...</math> to $...$ for inline LaTeX.
-                    html_ = re.sub(r"<math[^>]*>(.*?)</math>", r"$\1$", content, flags=re.DOTALL)
-                    output_markdown.append(f"{html_}\n")
+                case "Code-Block" | "Text" | "Table" | "List-Group" | "Form" | \
+                     "Table-Of-Contents" | "Bibliography" | "Complex-Block":
+                    output_markdown.append(f"{md_converter.convert(content).strip()}\n")
                 case _:
-                    # Unknown label: pass through raw content as fallback
-                    output_markdown.append(f"{content}\n")
-        logging.info(f"Completed recognizing page {i+1}/{n_pages}.")
-    output_markdown = "\n".join(output_markdown)
-    with open(os.path.join(output_dir, "main.md"), "w") as f:
-        f.write(output_markdown)
+                    output_markdown.append(f"{md_converter.convert(content).strip()}\n")
+        output_markdown = "\n".join(output_markdown) + "\n"
+        with open(os.path.join(output_dir, "main.md"), "a") as f:
+            f.write(output_markdown)
+        end_time = datetime.now(tz=UTC)
+        logging.info(f"    Elapsed time: {end_time - start_time}")
+        logging.info("  Page completed.")
+    logging.info("Task completed.")
